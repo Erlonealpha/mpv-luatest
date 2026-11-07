@@ -1,130 +1,132 @@
-# mpv-test
+# mpv-luatest
 
-从 elxosc 离线测试流程抽出的独立 LuaJIT 测试框架，MIT 许可。运行器、断言和
-`mp` 桩均无第三方依赖，不需要安装 mpv，也不依赖 elxosc 或 elxlib。
-将整个目录复制到其他项目或单独克隆即可使用。目录没有 `main.lua`，不会被
-mpv 的目录脚本加载器启动。
+A small LuaJIT test framework for mpv scripts and host-independent Lua modules.
+The runner, assertions and fake `mp` module require only LuaJIT and the system
+shell. They do not load mpv, native libraries, or another project's modules.
 
-## 在其他项目使用
+## Run a project
 
-从目标项目根目录执行，测试默认放在 `test/`，代码模块默认从项目根目录加载：
+Clone [this repository](https://github.com/Erlonealpha/mpv-luatest) wherever you
+keep development dependencies, then run from your project's root:
 
 ```sh
-luajit /path/to/mpv-test/run.lua
-luajit /path/to/mpv-test/run.lua -v player/layout
+luajit /path/to/mpv-luatest/run.lua
+luajit /path/to/mpv-luatest/run.lua -v player/layout
 ```
 
-测试文件使用以下接口；现有同名 helper 文件也会由独立框架替代，无需改写测试：
+Tests default to `test/`. Project modules are loaded by their bare names from
+the project root. Put additional code/dependency roots on the search path:
+
+```sh
+luajit /path/to/mpv-luatest/run.lua --root /path/to/project --test-dir tests --path src --path vendor
+```
+
+Quote paths containing spaces. Every `--path`, `--test-dir` and `--bootstrap`
+is relative to `--root`, or may be absolute. Use `--bootstrap setup.lua` for
+project globals and stub configuration; its chunk receives root/test directory
+through `...`. See the [API reference](docs/API.md) for defaults and behavior.
+
+A test can install the fake host before loading its application:
 
 ```lua
-local F = require 'framework'
-local mp_stub = require 'mp_stub'
-local mp = mp_stub.install()
-local script = require 'my_script' -- 安装 stub 后再加载依赖 mp 的模块
+local F = require 'mpv_luatest.framework'
+local stub = require 'mpv_luatest.mp_stub'
+stub.install()
+local script = require 'my_script'
 
-F.section('my script')
-F.test('uses the host clock', function()
-    mp_stub.reset()
-    mp_stub.fake.time = 2.5
-    F.eq(mp.get_time(), 2.5, 'deterministic time')
+F.section('clock')
+F.test('reads fake time', function()
+    stub.reset()
+    stub.fake.time = 2.5
+    F.eq(script.seconds(), 2.5, 'current host time')
 end)
 ```
 
-从任意工作目录运行其他项目，或使用不同测试、代码目录：
+A complete runnable example is included:
 
 ```sh
-luajit /path/to/mpv-test/run.lua --root /path/to/project --test-dir tests --path src --path vendor
+luajit run.lua --root examples/project
 ```
 
-`--test-dir`、每个 `--path` 和 `--bootstrap` 都相对于 `--root`；也接受绝对路径。
-`--root` 默认当前工作目录，不是框架目录。带空格的路径需要 shell 引号。
-`--bootstrap setup.lua` 在测试发现前执行指定 Lua 文件，以项目根目录和测试目录
-作为 `...` 的两个参数；可在其中配置 globals、路径或预先安装桩。配置失败立即退出。
-运行器本身不会自动安装 `mp`，宿主依赖必须显式调用 `mp_stub.install()`。
+The CLI also supports existing tests importing `framework`, `runner`, or
+`mp_stub`: these names resolve to the same canonical module objects.
 
-自动发现根层 `test_*.lua`，并递归进入以 `test` 开头的分组目录；`real_host/` 和
-`fixtures/` 等目录不进入离线测试。文件按相对路径排序。筛选器按路径分段进行
-字面子串匹配，可省略 `test_` 和 `.lua`，并支持 Windows 分隔符。
-默认输出失败和总结；`-v` 显示文件、section 和成功用例，`-h` 显示帮助。
-成功退出码为 0；断言、文件加载、参数、引导或空匹配失败均为 1。
+## Use as a development dependency
 
-## 接口与边界
-
-`require 'mpv_test.framework'`、`require 'mpv_test.runner'`、
-`require 'mpv_test.mp_stub'` 是规范模块名。CLI 同时绑定 `framework`、`runner`、
-`mp_stub` 到同一模块对象，让已有测试继续运行。项目自己的测试辅助模块仍从
-测试目录加载；不会加载项目旧 `run.lua` 或 `support.lua`。
-
-断言接口保持 `section`、`test`、`ok`、`eq`、`contains`、`close`、`raises`、`fail`、
-`results`、`summary`；`close` 默认容差 `1e-9`，`raises` 按异常文本子串匹配。
-`file` 和 `set_verbose` 管理报告上下文。统计以断言数计，同一进程累积。
-
-`mp_stub.fake` 是稳定的状态表，`reset()` 替换其内部集合并恢复默认时间、分辨率
-和帧率；捕获过 `mp` 的宿主模块仍访问这张表。`install()` 每次提供新的 API 表并
-设置 `package.loaded['mp']`。`pump()` 只运行本批未取消的 timeout，执行中新增的
-timeout 留到下一次；它按队列模拟帧，不模拟 timeout 的真实延迟。
-
-| 桩 API | 控制和记录 |
-| --- | --- |
-| `get_time`、`get_osd_size`、display-fps 数值属性 | `fake.time`、`osd_width/height`、`fps` |
-| native 属性、mouse-pos、设置属性 | `fake.native_props`、`mouse`、`props` |
-| `commandv`、`msg.info/warn/error` | `fake.commands`、`messages` |
-| property observer 注册与解除 | `fake.events`、`unobserved`；显式调用 `cb` 驱动事件 |
-| script message 和 event 注册/解除 | `fake.log[name]`、`fake.log['event:' .. name]` |
-| `add_timeout`、timer `kill` | `fake.timeouts`、`pump()` |
-| OSD overlay 创建、update、remove | `fake.overlays`、最新 `overlay`、更新和删除次数 |
-| key binding section、enable/disable、mouse area | 各 section 映射与顺序记录 |
-
-这些是原流程覆盖的 API 子集；没有真实 libass、IPC、异步命令、`mp.utils` 或
-`mp.assdraw` 实现。未配置的 native 属性保持原桩的 `'native:' .. name` 回退值；
-数值属性只支持 display-fps/estimated-display-fps。需要额外 API 时测试可显式替换
-已安装的 `mp` 表字段。
-
-`mp_stub.configure({ input_section = 'my-input', preserve_mouse = true })` 可设置
-`fake.bindings` 的主 section 视图和旧流程的鼠标保留行为。默认所有 section 都记录，
-`bindings` 指向最近一次设置，`reset()` 清空鼠标；`configure()` 恢复默认配置。
-配置值会被复制，不修改或持有调用方 options。其他集合在每次 reset 中清空。
-
-## 运行现有 elxosc 测试
-
-从 elxosc 根目录执行；现有 `test/` 无需修改：
+A project can pin this checkout as a Git submodule:
 
 ```sh
-luajit mpv-test/run.lua --path .. --path ../elxlib --bootstrap mpv-test/adapters/elxosc.lua
-luajit mpv-test/run.lua --path .. --path ../elxlib --bootstrap mpv-test/adapters/elxosc.lua host_app -v
+git submodule add https://github.com/Erlonealpha/mpv-luatest.git mpv-luatest
+git submodule update --init --recursive
 ```
 
-适配文件只提供 `debug_msg`、主 input section 和旧桩的鼠标保留契约。
-`--path` 从旁边的 elxlib 直接加载 Lua 源码，绕过其 native `init.lua`；框架本身
-不写死此依赖。当前工作区的运行结果及新旧入口对照见 [VALIDATION.md](VALIDATION.md)。
-真实宿主 Python fixture 继续由 elxosc 自己管理。
+After cloning a consuming project, initialize its recorded submodule commit;
+update that pointer deliberately after verifying a newer framework version.
+This is a test dependency and contains no `main.lua` for mpv's directory loader.
 
-## 框架自检
+To keep a project's existing entry command, write a small adapter that adds
+the dependency's module roots and calls the public API:
 
-从本仓库根目录执行：
+```lua
+package.path = 'mpv-luatest/src/?.lua;mpv-luatest/src/?/init.lua;' .. package.path
+local suite = require 'mpv_luatest.suite'
+os.exit(suite.main(arg or {}, {
+    verbose = false,
+    root = '.',
+    test_dir = 'test',
+    paths = { 'src' },
+    bootstrap = 'test/bootstrap.lua',
+    suite_name = 'my-project tests',
+}))
+```
+
+`suite.main` and `suite.run` return status codes without exiting the process.
+The canonical aggregate is `require 'mpv_luatest'`; it exports the same direct
+module objects, plus the framework version.
+
+## Discovery and results
+
+Files named `test_*.lua` are discovered in sorted order at the test root and
+below directories whose names start with `test`. Other directories, including
+`fixtures` and `real_host`, are excluded. Filters match literal substrings in
+consecutive slash-separated components; `test_` and `.lua` may be omitted.
+
+Default output shows failures and assertion totals. `-v` includes file/section
+and successful test names. Failed assertions and crashed files do not stop
+remaining files. Exit code is 0 on success/help, 1 on errors or empty matches.
+
+The fake host records timeouts, property observers, messages, overlays, commands,
+key sections and mouse areas. Tests explicitly dispatch callbacks and pump fake
+frames. It covers a documented API subset; use real mpv processes for rendering,
+IPC and real input validation. Details are in [API.md](docs/API.md).
+
+## Framework checks
+
+From this repository alone:
 
 ```sh
 luajit run.lua --test-dir tests
+luajit run.lua --root examples/project
 emmylua_check . --warnings-as-errors
 uv run --group test python -m pytest -q
 ```
 
-Python 仅用于运行 CLI 回归测试，可直接使用已有 Python + pytest；通过
-`MPV_TEST_LUAJIT` 指定 LuaJIT，默认搜索 PATH。回归把框架复制到独立临时目录，
-使用完全无 elxosc 的项目验证迁移、空格路径、发现、筛选、失败恢复和兼容模块 identity。
+Python + pytest are development-only dependencies declared in
+`pyproject.toml` and `uv.lock`. Existing Python/pytest may also run
+`python -m pytest -q`. Set `MPV_LUATEST_LUAJIT` to select LuaJIT, otherwise PATH
+is searched. CLI tests relocate the framework and create independent temporary
+projects to verify use without a consumer checkout.
 
-## 文件归属
+## Layout and license
 
-| 路径 | 职责 |
+| Path | Responsibility |
 | --- | --- |
-| `run.lua` | 通用 CLI 和 suite 执行 |
-| `src/mpv_test/framework.lua` | 断言与报告 |
-| `src/mpv_test/runner.lua` | 参数、测试发现与筛选 |
-| `src/mpv_test/support.lua` | 通用路径和可选 bootstrap |
-| `src/mpv_test/mp_stub.lua` | 离线 mp 桩 |
-| `adapters/elxosc.lua` | elxosc 集成设置 |
-| `tests/` | 框架自己的 Lua 与 CLI 回归 |
+| `run.lua` | Standalone process entry |
+| `src/mpv_luatest/` | Public modules, discovery, assertions and fake host |
+| `docs/API.md` | Module contracts and stub boundaries |
+| `examples/project/` | Runnable consumer example |
+| `tests/` | Framework behavior and subprocess regressions |
 
-初始来源：elxosc `d465fbe` 的 `test/framework.lua`、`test/runner.lua`、
-`test/mp_stub.lua`，按原 MIT 许可证保留版权。项目运行时辅助模块、fixture、
-真实宿主流程以及现有测试用例留在原项目。
+Released under the [MIT license](LICENSE). The initial assertion/runner/stub
+implementation was extracted from elxosc; all project-specific adapters and
+validation records are maintained by their consuming projects.

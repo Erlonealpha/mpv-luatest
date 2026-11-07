@@ -15,7 +15,7 @@ function M.resolve(root, path)
     return root:gsub('\\', '/') .. '/' .. path
 end
 
----@param options MpvTestOptions
+---@param options MpvLuaTestOptions
 ---@return string test_directory
 function M.bootstrap(options)
     local test_directory = M.resolve(options.root, options.test_dir)

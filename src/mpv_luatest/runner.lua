@@ -1,7 +1,7 @@
 -- Discovery and selection for standalone Lua suites. No project dependency.
 local M = {}
 
----@class MpvTestOptions
+---@class MpvLuaTestOptions
 ---@field verbose boolean
 ---@field help? boolean
 ---@field filter? string
@@ -9,13 +9,26 @@ local M = {}
 ---@field test_dir string
 ---@field paths string[]
 ---@field bootstrap? string
+---@field suite_name? string
 
 ---@param args string[]
----@return MpvTestOptions? options
+---@param defaults? MpvLuaTestOptions
+---@return MpvLuaTestOptions? options
 ---@return string? error
-function M.parse_args(args)
-    ---@type MpvTestOptions
-    local options = { verbose = false, root = '.', test_dir = 'test', paths = {} }
+function M.parse_args(args, defaults)
+    defaults = defaults or { verbose = false, root = '.', test_dir = 'test', paths = {} }
+    ---@type MpvLuaTestOptions
+    local options = {
+        verbose = defaults.verbose,
+        root = defaults.root,
+        test_dir = defaults.test_dir,
+        bootstrap = defaults.bootstrap,
+        suite_name = defaults.suite_name,
+        paths = {},
+    }
+    for _, path in ipairs(defaults.paths) do
+        options.paths[#options.paths + 1] = path
+    end
     local index = 1
     while index <= #args do
         local value = assert(args[index])

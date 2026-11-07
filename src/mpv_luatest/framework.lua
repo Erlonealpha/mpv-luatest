@@ -1,6 +1,6 @@
 -- Bare-bones assertion/reporting helpers (no external dependencies).
 --
--- Compatible with the elxosc and elxlib offline assertion helpers.
+-- Shared assertion state for standalone suites and embedded project runners.
 
 local F = {}
 
@@ -10,6 +10,15 @@ local suite = '?'
 local current_file = '?'
 local current_test
 local verbose = false
+
+--- Start a new report without replacing this module's identity.
+function F.reset()
+    n_pass, n_fail = 0, 0
+    failures = {}
+    suite, current_file = '?', '?'
+    current_test = nil
+    verbose = false
+end
 
 ---@param value boolean
 function F.set_verbose(value)

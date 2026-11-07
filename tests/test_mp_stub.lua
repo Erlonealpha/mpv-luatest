@@ -1,5 +1,5 @@
-local F = require 'mpv_test.framework'
-local mp_stub = require 'mpv_test.mp_stub'
+local F = require 'mpv_luatest.framework'
+local mp_stub = require 'mpv_luatest.mp_stub'
 
 F.section('offline mp lifecycle')
 

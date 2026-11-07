@@ -35,7 +35,7 @@ local preserve_mouse = false
 ---@field bindings_disabled? string
 ---@field mouse_areas table<string, table[]>
 ---@field binding_sections table<string, MpStubBinding>
----@field bindings_enabled_sections table<string, table>
+---@field bindings_enabled_sections table<string, table?>
 ---@field enable_history string[]
 ---@field disable_history string[]
 ---@field unobserved function[]

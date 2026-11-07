@@ -12,9 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.fixture
 def suite(tmp_path):
-    executable = os.environ.get('MPV_TEST_LUAJIT') or shutil.which('luajit')
+    executable = os.environ.get('MPV_LUATEST_LUAJIT') or shutil.which('luajit')
     if not executable:
-        pytest.skip('LuaJIT is unavailable; set MPV_TEST_LUAJIT')
+        pytest.skip('LuaJIT is unavailable; set MPV_LUATEST_LUAJIT')
     framework = tmp_path / 'framework with spaces'
     framework.mkdir()
     shutil.copy2(ROOT / 'run.lua', framework / 'run.lua')
@@ -22,7 +22,7 @@ def suite(tmp_path):
     project = tmp_path / 'unrelated project with spaces'
     (project / 'test').mkdir(parents=True)
     # Compatibility imports must use the extracted modules even when a project
-    # has old helpers. No elxosc checkout is present in this disposable tree.
+    # has old helpers. No consumer project checkout is used by these tests.
     for name in ('framework', 'runner', 'mp_stub', 'support'):
         (project / 'test' / f'{name}.lua').write_text(
             "error('project helper was loaded')\n", encoding='utf-8')
@@ -127,16 +127,16 @@ def test_relative_paths_bootstrap_and_compatibility_identity(suite):
     (project / 'setup.lua').write_text(
         "local root, test_dir = ...\n"
         "assert(root == '.' and test_dir == 'checks')\n"
-        "local stub = require 'mpv_test.mp_stub'\n"
+        "local stub = require 'mpv_luatest.mp_stub'\n"
         "stub.install()\n"
         "stub.fake.time = 7\n", encoding='utf-8')
     write_test(project, 'test_project.lua', """
 local application = require 'application'
-local namespaced = require 'mpv_test.framework'
+local namespaced = require 'mpv_luatest.framework'
 local stub = require 'mp_stub'
 F.eq(F, namespaced, 'framework identity')
-F.eq(stub, require 'mpv_test.mp_stub', 'stub identity')
-F.eq(require 'runner', require 'mpv_test.runner', 'runner identity')
+F.eq(stub, require 'mpv_luatest.mp_stub', 'stub identity')
+F.eq(require 'runner', require 'mpv_luatest.runner', 'runner identity')
 F.eq(application.value, 17, 'repeated module paths resolved from project')
 F.eq(require('mp').get_time(), 7, 'bootstrap ran before tests')
 """, directory='checks')
@@ -172,3 +172,43 @@ def test_windows_directory_expansion_is_rejected(suite, path):
     result = run(suite, '--test-dir', path)
     assert result.returncode == 1
     assert 'unsupported characters in Windows test directory' in result.stdout
+
+
+def test_embedded_api_returns_status_and_resets_reports(suite):
+    executable, framework, project = suite
+    write_test(project, 'test_bad.lua', "F.fail('expected failure')")
+    write_test(project, 'test_good.lua', "F.ok(true, 'next suite')")
+    script = project / 'embedded.lua'
+    script.write_text("""
+local framework_root = arg[1]
+package.path = framework_root .. '/src/?.lua;' .. framework_root .. '/src/?/init.lua;' .. package.path
+local api = require 'mpv_luatest'
+assert(api.framework == require 'mpv_luatest.framework')
+assert(api.runner == require 'mpv_luatest.runner')
+assert(api.support == require 'mpv_luatest.support')
+assert(api.mp_stub == require 'mpv_luatest.mp_stub')
+assert(api.suite == require 'mpv_luatest.suite')
+local defaults = { verbose = false, root = '.', test_dir = 'test', paths = { 'vendor' } }
+local options = assert(api.runner.parse_args({ '--path', 'src' }, defaults))
+assert(#defaults.paths == 1 and #options.paths == 2)
+assert(api.suite.main({ 'bad' }, defaults) == 1)
+assert(api.suite.main({ 'good' }, defaults) == 0)
+local failed, passed = api.framework.results()
+assert(failed == 0 and passed == 1)
+assert(package.loaded.framework == api.framework)
+assert(package.loaded.mp_stub == api.mp_stub)
+assert(package.loaded.runner == api.runner)
+""", encoding='utf-8')
+    result = subprocess.run([executable, str(script), str(framework)], cwd=project,
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'FAILED: 1 failure(s), 0 check(s) passed' in result.stdout
+    assert 'ALL GOOD: 1 checks passed' in result.stdout
+
+
+def test_documented_example_runs_with_only_the_relocated_framework(suite):
+    _, framework, project = suite
+    shutil.copytree(ROOT / 'examples', framework / 'examples')
+    result = run(suite, '--root', str(framework / 'examples' / 'project'))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'ALL GOOD: 2 checks passed' in result.stdout
