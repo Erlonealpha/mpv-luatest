@@ -1,3 +1,5 @@
+---@diagnostic disable: duplicate-type, duplicate-doc-field
+
 -- Discovery and selection for standalone Lua suites. No project dependency.
 local M = {}
 

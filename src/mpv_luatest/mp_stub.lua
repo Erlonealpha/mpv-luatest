@@ -1,3 +1,5 @@
+---@diagnostic disable: duplicate-type, duplicate-doc-field
+
 -- A tiny `mp` stub for the host-layer tests.
 --
 -- install() replaces require 'mp'. The fake state table stays stable across
